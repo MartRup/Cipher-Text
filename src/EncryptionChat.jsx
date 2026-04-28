@@ -1,384 +1,430 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import './EncryptionChat.css';
 
+/* ─── Cipher Implementations ──────────────────────────────────── */
+
+const caesarEncrypt = (text, key) => {
+  const shift = parseInt(key) || 0;
+  return text.toUpperCase().split('').map(ch =>
+    ch >= 'A' && ch <= 'Z'
+      ? String.fromCharCode((ch.charCodeAt(0) - 65 + shift) % 26 + 65)
+      : ch
+  ).join('');
+};
+
+const caesarDecrypt = (text, key) => {
+  const shift = parseInt(key) || 0;
+  return text.toUpperCase().split('').map(ch =>
+    ch >= 'A' && ch <= 'Z'
+      ? String.fromCharCode(((ch.charCodeAt(0) - 65 - (shift % 26) + 26) % 26) + 65)
+      : ch
+  ).join('');
+};
+
+const vigenereEncrypt = (text, key) => {
+  const k = key.toUpperCase().replace(/[^A-Z]/g, '');
+  if (!k) return text.toUpperCase();
+  let ki = 0;
+  return text.toUpperCase().split('').map(ch => {
+    if (ch >= 'A' && ch <= 'Z') {
+      const s = k[ki++ % k.length].charCodeAt(0) - 65;
+      return String.fromCharCode((ch.charCodeAt(0) - 65 + s) % 26 + 65);
+    }
+    return ch;
+  }).join('');
+};
+
+const vigenereDecrypt = (text, key) => {
+  const k = key.toUpperCase().replace(/[^A-Z]/g, '');
+  if (!k) return text.toUpperCase();
+  let ki = 0;
+  return text.toUpperCase().split('').map(ch => {
+    if (ch >= 'A' && ch <= 'Z') {
+      const s = k[ki++ % k.length].charCodeAt(0) - 65;
+      return String.fromCharCode((ch.charCodeAt(0) - 65 - s + 26) % 26 + 65);
+    }
+    return ch;
+  }).join('');
+};
+
+const railFenceEncrypt = (text, key) => {
+  const rails = Math.max(parseInt(key) || 3, 2);
+  const fence = Array.from({ length: rails }, () => []);
+  let rail = 0, dir = 1;
+  for (const ch of text) {
+    fence[rail].push(ch);
+    rail += dir;
+    if (rail === 0 || rail === rails - 1) dir *= -1;
+  }
+  return fence.flat().join('').toUpperCase();
+};
+
+const railFenceDecrypt = (text, key) => {
+  const rails = Math.max(parseInt(key) || 3, 2);
+  const fence = Array.from({ length: rails }, () => []);
+  let rail = 0, dir = 1;
+  for (let i = 0; i < text.length; i++) {
+    fence[rail].push(null);
+    rail += dir;
+    if (rail === 0 || rail === rails - 1) dir *= -1;
+  }
+  let idx = 0;
+  for (let r = 0; r < rails; r++)
+    for (let c = 0; c < fence[r].length; c++)
+      if (fence[r][c] === null) fence[r][c] = text[idx++];
+  let result = '';
+  rail = 0; dir = 1;
+  for (let i = 0; i < text.length; i++) {
+    result += fence[rail].shift();
+    rail += dir;
+    if (rail === 0 || rail === rails - 1) dir *= -1;
+  }
+  return result.toUpperCase();
+};
+
+const buildPlayfairMatrix = (key) => {
+  const k = key.toUpperCase().replace(/[^A-Z]/g, '').replace(/J/g, 'I');
+  const seen = new Set();
+  const mat = [];
+  for (const c of k + 'ABCDEFGHIKLMNOPQRSTUVWXYZ')
+    if (!seen.has(c)) { seen.add(c); mat.push(c); }
+  return mat;
+};
+
+const playfairEncrypt = (text, key) => {
+  const mat = buildPlayfairMatrix(key);
+  const t = text.toUpperCase().replace(/[^A-Z]/g, '').replace(/J/g, 'I');
+  const dg = [];
+  let i = 0;
+  while (i < t.length) {
+    let a = t[i++];
+    let b = i < t.length && t[i] !== a ? t[i++] : 'X';
+    dg.push([a, b]);
+  }
+  return dg.map(([a, b]) => {
+    const pA = mat.indexOf(a), pB = mat.indexOf(b);
+    const rA = Math.floor(pA / 5), cA = pA % 5;
+    const rB = Math.floor(pB / 5), cB = pB % 5;
+    if (rA === rB) return mat[rA * 5 + (cA + 1) % 5] + mat[rB * 5 + (cB + 1) % 5];
+    if (cA === cB) return mat[((rA + 1) % 5) * 5 + cA] + mat[((rB + 1) % 5) * 5 + cB];
+    return mat[rA * 5 + cB] + mat[rB * 5 + cA];
+  }).join('');
+};
+
+const playfairDecrypt = (text, key) => {
+  const mat = buildPlayfairMatrix(key);
+  const t = text.toUpperCase().replace(/[^A-Z]/g, '');
+  const dg = [];
+  for (let i = 0; i < t.length; i += 2) dg.push([t[i], t[i + 1]]);
+  return dg.map(([a, b]) => {
+    const pA = mat.indexOf(a), pB = mat.indexOf(b);
+    const rA = Math.floor(pA / 5), cA = pA % 5;
+    const rB = Math.floor(pB / 5), cB = pB % 5;
+    if (rA === rB) return mat[rA * 5 + (cA + 4) % 5] + mat[rB * 5 + (cB + 4) % 5];
+    if (cA === cB) return mat[((rA + 4) % 5) * 5 + cA] + mat[((rB + 4) % 5) * 5 + cB];
+    return mat[rA * 5 + cB] + mat[rB * 5 + cA];
+  }).join('');
+};
+
+const ENCRYPT = {
+  caesar: caesarEncrypt,
+  vigenere: vigenereEncrypt,
+  railfence: railFenceEncrypt,
+  playfair: playfairEncrypt,
+};
+
+const DECRYPT = {
+  caesar: caesarDecrypt,
+  vigenere: vigenereDecrypt,
+  railfence: railFenceDecrypt,
+  playfair: playfairDecrypt,
+};
+
+/* ─── Cipher Config ───────────────────────────────────────────── */
+const CIPHERS = [
+  { value: 'caesar',    label: 'Caesar',     desc: 'Shift by numeric key'         },
+  { value: 'vigenere',  label: 'Vigenère',   desc: 'Repeating keyword shifts'      },
+  { value: 'railfence', label: 'Rail Fence', desc: 'Zigzag rail transposition'     },
+  { value: 'playfair',  label: 'Playfair',   desc: 'Digraph substitution (5×5)'    },
+];
+
+const NUMERIC_CIPHERS = ['caesar', 'railfence'];
+
+/* ─── Main Component ──────────────────────────────────────────── */
 const EncryptionChat = () => {
-  const [inputMessage, setInputMessage] = useState('');
-  const [selectedCipher, setSelectedCipher] = useState('caesar');
-  const [encryptionKey, setEncryptionKey] = useState('');
+  const [messages,    setMessages]    = useState([]);
+  const [inputMsg,    setInputMsg]    = useState('');
+  const [cipher,      setCipher]      = useState('caesar');
+  const [key,         setKey]         = useState('');
   const [currentUser, setCurrentUser] = useState('User A');
-  const [showSettings, setShowSettings] = useState(false);
-  const [messages, setMessages] = useState([]);
-  
-  const cipherOptions = [
-    { value: 'caesar', label: 'Caesar Cipher', description: 'Shift each letter by key positions' },
-    { value: 'vigenere', label: 'Vigenere Cipher', description: 'Use repeating keyword shifts' },
-    { value: 'railfence', label: 'Rail Fence Cipher', description: 'Rearrange characters by rails' },
-    { value: 'playfair', label: 'Playfair Cipher', description: 'Encrypt using digraph substitution' }
-  ];
+  const [mode,        setMode]        = useState('encrypt');
 
-  // Caesar Cipher Implementation
-  const caesarEncrypt = (text, key) => {
-    const shift = parseInt(key) || 0;
-    return text.toUpperCase().split('').map(char => {
-      if (char >= 'A' && char <= 'Z') {
-        return String.fromCharCode((char.charCodeAt(0) - 65 + shift) % 26 + 65);
-      }
-      return char;
-    }).join('');
-  };
+  const scrollRef = useRef(null);
 
-  const caesarDecrypt = (text, key) => {
-    const shift = parseInt(key) || 0;
-    return text.toUpperCase().split('').map(char => {
-      if (char >= 'A' && char <= 'Z') {
-        return String.fromCharCode((char.charCodeAt(0) - 65 - shift + 26) % 26 + 65);
-      }
-      return char;
-    }).join('');
-  };
+  useEffect(() => {
+    if (scrollRef.current)
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
 
-  // Vigenere Cipher Implementation
-  const vigenereEncrypt = (text, key) => {
-    const keyUpper = key.toUpperCase().replace(/[^A-Z]/g, '');
-    if (!keyUpper) return text.toUpperCase();
-    
-    let keyIndex = 0;
-    return text.toUpperCase().split('').map(char => {
-      if (char >= 'A' && char <= 'Z') {
-        const keyChar = keyUpper[keyIndex % keyUpper.length];
-        const shift = keyChar.charCodeAt(0) - 65;
-        keyIndex++;
-        return String.fromCharCode((char.charCodeAt(0) - 65 + shift) % 26 + 65);
-      }
-      return char;
-    }).join('');
-  };
+  const keyPlaceholder = NUMERIC_CIPHERS.includes(cipher)
+    ? 'Numeric key  (e.g. 3)'
+    : 'Keyword  (e.g. SECRET)';
 
-  const vigenereDecrypt = (text, key) => {
-    const keyUpper = key.toUpperCase().replace(/[^A-Z]/g, '');
-    if (!keyUpper) return text.toUpperCase();
-    
-    let keyIndex = 0;
-    return text.toUpperCase().split('').map(char => {
-      if (char >= 'A' && char <= 'Z') {
-        const keyChar = keyUpper[keyIndex % keyUpper.length];
-        const shift = keyChar.charCodeAt(0) - 65;
-        keyIndex++;
-        return String.fromCharCode((char.charCodeAt(0) - 65 - shift + 26) % 26 + 65);
-      }
-      return char;
-    }).join('');
-  };
-
-  // Rail Fence Cipher Implementation
-  const railFenceEncrypt = (text, key) => {
-    const rails = parseInt(key) || 3;
-    if (rails < 2) return text.toUpperCase();
-    
-    const fence = Array(rails).fill().map(() => []);
-    let rail = 0;
-    let direction = 1;
-    
-    for (let i = 0; i < text.length; i++) {
-      fence[rail].push(text[i]);
-      rail += direction;
-      if (rail === 0 || rail === rails - 1) direction *= -1;
-    }
-    
-    return fence.flat().join('').toUpperCase();
-  };
-
-  const railFenceDecrypt = (text, key) => {
-    const rails = parseInt(key) || 3;
-    if (rails < 2) return text.toUpperCase();
-    
-    const fence = Array(rails).fill().map(() => []);
-    let rail = 0;
-    let direction = 1;
-    
-    // Mark positions
-    for (let i = 0; i < text.length; i++) {
-      fence[rail].push(null);
-      rail += direction;
-      if (rail === 0 || rail === rails - 1) direction *= -1;
-    }
-    
-    // Fill with characters
-    let index = 0;
-    for (let r = 0; r < rails; r++) {
-      for (let c = 0; c < fence[r].length; c++) {
-        if (fence[r][c] === null) {
-          fence[r][c] = text[index++];
-        }
-      }
-    }
-    
-    // Read in zigzag pattern
-    let result = '';
-    rail = 0;
-    direction = 1;
-    for (let i = 0; i < text.length; i++) {
-      result += fence[rail].shift();
-      rail += direction;
-      if (rail === 0 || rail === rails - 1) direction *= -1;
-    }
-    
-    return result.toUpperCase();
-  };
-
-  // Playfair Cipher Implementation
-  const generatePlayfairMatrix = (key) => {
-    const keyUpper = key.toUpperCase().replace(/[^A-Z]/g, '').replace(/J/g, 'I');
-    const alphabet = 'ABCDEFGHIKLMNOPQRSTUVWXYZ';
-    const seen = new Set();
-    const matrix = [];
-    
-    // Add key characters
-    for (const char of keyUpper) {
-      if (!seen.has(char)) {
-        seen.add(char);
-        matrix.push(char);
-      }
-    }
-    
-    // Add remaining alphabet
-    for (const char of alphabet) {
-      if (!seen.has(char)) {
-        seen.add(char);
-        matrix.push(char);
-      }
-    }
-    
-    return matrix;
-  };
-
-  const playfairEncrypt = (text, key) => {
-    const matrix = generatePlayfairMatrix(key);
-    const processedText = text.toUpperCase().replace(/[^A-Z]/g, '').replace(/J/g, 'I');
-    
-    // Prepare digraphs
-    const digraphs = [];
-    let i = 0;
-    while (i < processedText.length) {
-      let pair = processedText[i];
-      i++;
-      if (i < processedText.length && processedText[i] !== pair) {
-        pair += processedText[i];
-        i++;
-      } else {
-        pair += 'X';
-      }
-      digraphs.push(pair);
-    }
-    
-    // Encrypt digraphs
-    const result = digraphs.map(([a, b]) => {
-      const posA = matrix.indexOf(a);
-      const posB = matrix.indexOf(b);
-      const rowA = Math.floor(posA / 5);
-      const colA = posA % 5;
-      const rowB = Math.floor(posB / 5);
-      const colB = posB % 5;
-      
-      if (rowA === rowB) {
-        // Same row
-        return matrix[rowA * 5 + (colA + 1) % 5] + matrix[rowB * 5 + (colB + 1) % 5];
-      } else if (colA === colB) {
-        // Same column
-        return matrix[((rowA + 1) % 5) * 5 + colA] + matrix[((rowB + 1) % 5) * 5 + colB];
-      } else {
-        // Rectangle
-        return matrix[rowA * 5 + colB] + matrix[rowB * 5 + colA];
-      }
-    });
-    
-    return result.join('');
-  };
-
-  const playfairDecrypt = (text, key) => {
-    const matrix = generatePlayfairMatrix(key);
-    const processedText = text.toUpperCase().replace(/[^A-Z]/g, '');
-    
-    // Split into digraphs
-    const digraphs = [];
-    for (let i = 0; i < processedText.length; i += 2) {
-      digraphs.push(processedText.substr(i, 2));
-    }
-    
-    // Decrypt digraphs
-    const result = digraphs.map(([a, b]) => {
-      const posA = matrix.indexOf(a);
-      const posB = matrix.indexOf(b);
-      const rowA = Math.floor(posA / 5);
-      const colA = posA % 5;
-      const rowB = Math.floor(posB / 5);
-      const colB = posB % 5;
-      
-      if (rowA === rowB) {
-        // Same row
-        return matrix[rowA * 5 + (colA + 4) % 5] + matrix[rowB * 5 + (colB + 4) % 5];
-      } else if (colA === colB) {
-        // Same column
-        return matrix[((rowA + 4) % 5) * 5 + colA] + matrix[((rowB + 4) % 5) * 5 + colB];
-      } else {
-        // Rectangle
-        return matrix[rowA * 5 + colB] + matrix[rowB * 5 + colA];
-      }
-    });
-    
-    return result.join('');
-  };
-
-  const encryptMessage = (text, cipher, key) => {
-    switch (cipher) {
-      case 'caesar':
-        return caesarEncrypt(text, key);
-      case 'vigenere':
-        return vigenereEncrypt(text, key);
-      case 'railfence':
-        return railFenceEncrypt(text, key);
-      case 'playfair':
-        return playfairEncrypt(text, key);
-      default:
-        return text;
-    }
-  };
-
-  const decryptMessage = (text, cipher, key) => {
-    switch (cipher) {
-      case 'caesar':
-        return caesarDecrypt(text, key);
-      case 'vigenere':
-        return vigenereDecrypt(text, key);
-      case 'railfence':
-        return railFenceDecrypt(text, key);
-      case 'playfair':
-        return playfairDecrypt(text, key);
-      default:
-        return text;
-    }
-  };
-
-  const handleSendMessage = () => {
-    if (!inputMessage.trim() || !encryptionKey.trim()) {
-      alert('Please enter both message and encryption key');
+  const handleSend = () => {
+    const msg  = inputMsg.trim();
+    const kval = key.trim();
+    if (!msg || !kval) {
+      alert(`Please fill in both the message and the ${mode}ion key.`);
       return;
     }
-
-    const encrypted = encryptMessage(inputMessage, selectedCipher, encryptionKey);
-    const decrypted = decryptMessage(encrypted, selectedCipher, encryptionKey);
-
-    const newMessage = {
-      id: Date.now(),
-      sender: currentUser,
-      original: inputMessage.toUpperCase(),
-      encrypted: encrypted,
-      decrypted: decrypted,
-      cipher: selectedCipher,
-      key: encryptionKey,
-      timestamp: new Date().toLocaleTimeString(),
-      type: currentUser === 'User A' ? 'sent' : 'received'
-    };
-
-    setMessages([...messages, newMessage]);
-    setInputMessage('');
     
-    // Switch user for next message
-    setCurrentUser(currentUser === 'User A' ? 'User B' : 'User A');
+    let encrypted, decrypted;
+    if (mode === 'encrypt') {
+      encrypted = ENCRYPT[cipher](msg, kval);
+      decrypted = DECRYPT[cipher](encrypted, kval);
+    } else {
+      decrypted = DECRYPT[cipher](msg, kval);
+      encrypted = msg.toUpperCase();
+    }
+
+    setMessages(prev => [...prev, {
+      id:        Date.now(),
+      sender:    currentUser,
+      type:      currentUser === 'User A' ? 'sent' : 'received',
+      mode:      mode,
+      original:  mode === 'encrypt' ? msg.toUpperCase() : decrypted,
+      encrypted,
+      decrypted,
+      cipher,
+      key:       kval,
+      timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    }]);
+
+    setInputMsg('');
+    setCurrentUser(u => u === 'User A' ? 'User B' : 'User A');
   };
 
-  const handleCipherSelect = (cipher) => {
-    setSelectedCipher(cipher);
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleSend(); }
   };
+
+  const cipherLabel = CIPHERS.find(c => c.value === cipher)?.label ?? cipher;
 
   return (
-    <div className="encryption-chat">
-      <div className="chat-container">
-        {/* Header */}
-        <div className="header">
-          <h1>Encryption Chat</h1>
-          <p>Classical cipher encryption</p>
+    <div className="ec-app">
+
+      {/* ── Navbar ── */}
+      <nav className="ec-navbar">
+        <div className="ec-navbar-brand">
+          <div className="ec-navbar-icon">🔐</div>
+          <div>
+            <div className="ec-navbar-title">CipherChat</div>
+            <div className="ec-navbar-sub">Classical Cipher Encryption Lab</div>
+          </div>
+        </div>
+        <div className="ec-navbar-meta">
+          <span className="ec-status-dot">SECURE</span>
+          <span>{messages.length} message{messages.length !== 1 ? 's' : ''}</span>
+        </div>
+      </nav>
+
+      {/* ── Layout ── */}
+      <div className="ec-layout">
+
+        {/* Cipher selector */}
+        <div className="ec-cipher-bar">
+          {CIPHERS.map(c => (
+            <button
+              key={c.value}
+              id={`cipher-${c.value}`}
+              className={`ec-cipher-btn ${cipher === c.value ? 'active' : ''}`}
+              onClick={() => setCipher(c.value)}
+            >
+              <span className="ec-cipher-btn-name">{c.label}</span>
+              <span className="ec-cipher-btn-desc">{c.desc}</span>
+            </button>
+          ))}
         </div>
 
-        {/* Main Content */}
-        <div className="main-content">
-          {messages.length === 0 ? (
-            <div className="empty-state">
-              <div className="lock-icon">🔒</div>
-              <p>Start a conversation by encrypting a message</p>
-            </div>
-          ) : (
-            <div className="messages-area">
-              {messages.map((msg) => (
-                <div key={msg.id} className="message-item">
-                  <div className="message-header">
-                    <span className="sender">{msg.sender}</span>
-                    <span className="timestamp">{msg.timestamp}</span>
-                  </div>
-                  <div className="message-content">
-                    <div className="original-text">
-                      <span className="label">Original:</span> {msg.original}
-                    </div>
-                    <div className="encrypted-text">
-                      <span className="label">Encrypted:</span> {msg.encrypted}
-                    </div>
-                  </div>
+        {/* Messages area */}
+        <div className="ec-messages-wrap">
+          <div className="ec-messages-scroll" ref={scrollRef}>
+            {messages.length === 0 ? (
+              <div className="ec-empty">
+                <div className="ec-empty-icon">🔏</div>
+                <div className="ec-empty-title">No messages yet</div>
+                <div className="ec-empty-sub">
+                  Select a cipher, enter your key,<br />
+                  and send an encrypted message below.
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            ) : (
+              <div className="ec-messages-list">
+                {messages.map(m => (
+                  <div key={m.id} className={`ec-msg ${m.type}`}>
+
+                    {/* Header */}
+                    <div className="ec-msg-head">
+                      <div className="ec-msg-sender">
+                        <div className="ec-msg-avatar">
+                          {m.sender === 'User A' ? 'A' : 'B'}
+                        </div>
+                        <span className="ec-msg-sender-name">{m.sender}</span>
+                      </div>
+                      <div className="ec-msg-meta">
+                        <span className="ec-msg-cipher-badge">
+                          {CIPHERS.find(c => c.value === m.cipher)?.label}
+                        </span>
+                        <span className="ec-msg-time">{m.timestamp}</span>
+                      </div>
+                    </div>
+
+                    {/* Data grid */}
+                    <div className="ec-msg-body">
+                      <div className="ec-data-cell">
+                        <div className={`ec-data-label ${m.mode === 'decrypt' ? 'encrypted' : 'original'}`}>
+                          {m.mode === 'decrypt' ? 'Ciphertext' : 'Plaintext'}
+                        </div>
+                        <div className="ec-data-value">{m.mode === 'decrypt' ? m.encrypted : m.original}</div>
+                      </div>
+                      <div className="ec-data-cell">
+                        <div className={`ec-data-label ${m.mode === 'decrypt' ? 'original' : 'encrypted'}`}>
+                          {m.mode === 'decrypt' ? 'Plaintext (Answer)' : 'Ciphertext (Answer)'}
+                        </div>
+                        <div className="ec-data-value">{m.mode === 'decrypt' ? m.original : m.encrypted}</div>
+                      </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="ec-msg-foot">
+                      KEY: <span>{m.key}</span>
+                      &nbsp;·&nbsp;
+                      DECRYPTED: <span>{m.decrypted}</span>
+                    </div>
+
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Input Section */}
-        <div className="input-section">
-          <div className="cipher-buttons">
-            {cipherOptions.map((option) => (
-              <button
-                key={option.value}
-                className={`cipher-btn ${selectedCipher === option.value ? 'active' : ''}`}
-                onClick={() => setSelectedCipher(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+        {/* Input panel */}
+        <div className="ec-input-panel">
+
+          {/* User toggle + key row */}
+          <div className="ec-controls-row">
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <div className="ec-user-toggle">
+                <button
+                  id="toggle-user-a"
+                  className={`ec-user-btn ${currentUser === 'User A' ? 'active-a' : ''}`}
+                  onClick={() => setCurrentUser('User A')}
+                >
+                  User A
+                </button>
+                <button
+                  id="toggle-user-b"
+                  className={`ec-user-btn ${currentUser === 'User B' ? 'active-b' : ''}`}
+                  onClick={() => setCurrentUser('User B')}
+                >
+                  User B
+                </button>
+              </div>
+
+              <div className="ec-user-toggle">
+                <button
+                  id="toggle-mode-encrypt"
+                  className={`ec-user-btn ${mode === 'encrypt' ? 'active-mode' : ''}`}
+                  onClick={() => setMode('encrypt')}
+                >
+                  Encrypt
+                </button>
+                <button
+                  id="toggle-mode-decrypt"
+                  className={`ec-user-btn ${mode === 'decrypt' ? 'active-mode' : ''}`}
+                  onClick={() => setMode('decrypt')}
+                >
+                  Decrypt
+                </button>
+              </div>
+            </div>
+
+            <div className="ec-key-wrap">
+              <span className="ec-key-label">KEY</span>
+              <input
+                id="encryption-key"
+                type="text"
+                className="ec-key-field"
+                value={key}
+                onChange={e => setKey(e.target.value)}
+                placeholder={keyPlaceholder}
+                autoComplete="off"
+              />
+            </div>
           </div>
-          
-          <div className="key-input">
-            <input
-              type="text"
-              value={encryptionKey}
-              onChange={(e) => setEncryptionKey(e.target.value)}
-              placeholder={selectedCipher === 'caesar' || selectedCipher === 'railfence' ? "Key (numbers only)" : "Key (letters only)"}
-              className="key-field"
-            />
+
+          {/* Message + send row */}
+          <div className="ec-send-row">
+            <div className="ec-msg-field-wrap">
+              <input
+                id="message-input"
+                type="text"
+                className="ec-msg-field"
+                value={inputMsg}
+                onChange={e => setInputMsg(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={`Type a message to ${mode} with ${cipherLabel}…`}
+                autoComplete="off"
+              />
+            </div>
+
+            <button
+              id="send-button"
+              className="ec-send-btn"
+              onClick={handleSend}
+              disabled={!inputMsg.trim() || !key.trim()}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+                strokeLinecap="round" strokeLinejoin="round">
+                {mode === 'encrypt' ? (
+                  <>
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </>
+                ) : (
+                  <>
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                  </>
+                )}
+              </svg>
+              {mode === 'encrypt' ? 'Encrypt & Send' : 'Decrypt & Send'}
+            </button>
           </div>
-          
-          <div className="message-input">
-            <input
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              placeholder="Type your message..."
-              className="message-field"
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-            />
-          </div>
-          
-          <button 
-            onClick={handleSendMessage} 
-            className="send-btn"
-            disabled={!inputMessage.trim() || !encryptionKey.trim()}
-          >
-            <span className="send-icon">✈️</span>
-            Send
-          </button>
+
         </div>
       </div>
+
+      {/* Status bar */}
+      <div className="ec-statusbar">
+        <div className="ec-statusbar-left">
+          <span className="ec-sb-item">
+            CIPHER: <span className="val">&nbsp;{cipherLabel}</span>
+          </span>
+          <span className="ec-sb-item">
+            ACTIVE:&nbsp;
+            <span className={`val ${currentUser === 'User A' ? 'user-a' : 'user-b'}`}>
+              {currentUser}
+            </span>
+          </span>
+          <span className="ec-sb-item">
+            MESSAGES: <span className="val">&nbsp;{messages.length}</span>
+          </span>
+        </div>
+        <div className="ec-statusbar-right">CSIT385 · Classical Cipher Lab</div>
+      </div>
+
     </div>
   );
 };
