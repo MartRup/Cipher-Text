@@ -16,7 +16,7 @@ const caesarDecrypt = (text, key) => {
   const shift = parseInt(key) || 0;
   return text.toUpperCase().split('').map(ch =>
     ch >= 'A' && ch <= 'Z'
-      ? String.fromCharCode((ch.charCodeAt(0) - 65 - shift + 26) % 26 + 65)
+      ? String.fromCharCode(((ch.charCodeAt(0) - 65 - (shift % 26) + 26) % 26) + 65)
       : ch
   ).join('');
 };
@@ -191,6 +191,7 @@ const EncryptionChat = () => {
       id:        Date.now(),
       sender:    currentUser,
       type:      currentUser === 'User A' ? 'sent' : 'received',
+      mode:      mode,
       original:  mode === 'encrypt' ? msg.toUpperCase() : decrypted,
       encrypted,
       decrypted,
@@ -281,12 +282,16 @@ const EncryptionChat = () => {
                     {/* Data grid */}
                     <div className="ec-msg-body">
                       <div className="ec-data-cell">
-                        <div className="ec-data-label original">Plaintext</div>
-                        <div className="ec-data-value">{m.original}</div>
+                        <div className={`ec-data-label ${m.mode === 'decrypt' ? 'encrypted' : 'original'}`}>
+                          {m.mode === 'decrypt' ? 'Ciphertext' : 'Plaintext'}
+                        </div>
+                        <div className="ec-data-value">{m.mode === 'decrypt' ? m.encrypted : m.original}</div>
                       </div>
                       <div className="ec-data-cell">
-                        <div className="ec-data-label encrypted">Ciphertext</div>
-                        <div className="ec-data-value">{m.encrypted}</div>
+                        <div className={`ec-data-label ${m.mode === 'decrypt' ? 'original' : 'encrypted'}`}>
+                          {m.mode === 'decrypt' ? 'Plaintext (Answer)' : 'Ciphertext (Answer)'}
+                        </div>
+                        <div className="ec-data-value">{m.mode === 'decrypt' ? m.original : m.encrypted}</div>
                       </div>
                     </div>
 
