@@ -1,0 +1,39 @@
+{
+  "name": "encryption-chat",
+  "version": "1.0.0",
+  "description": "Classical Encryption Chat Program for Information Assurance and Security Laboratory",
+  "main": "App.js",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "keywords": [
+    "encryption",
+    "chat",
+    "cryptography",
+    "classical-ciphers",
+    "security",
+    "education"
+  ],
+  "author": "Information Assurance and Security Student",
+  "license": "MIT"
+}
